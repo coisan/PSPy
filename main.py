@@ -1,12 +1,11 @@
-from Tkinter import Label, Frame, Button, Tk
+from tkinter import Label, Frame, Button, Tk, messagebox, simpledialog
 from PIL import Image, ImageGrab
 from os.path import basename
 from holdem_master import holdem_calc
 from glob import glob
-import tkMessageBox, tkSimpleDialog
 import pytesseract
 import cv2
-import win32gui
+from win32 import win32gui
 import math
 import re
 
@@ -41,6 +40,7 @@ playerPositions = [(None, None), (215, 558), (62, 365), (133, 176), (393, 83), (
 buttonPositions = [(771, 579), (428, 561), (251, 371), (301, 304), (476, 226), (858, 226), (1016, 304), (1061, 364), (906, 549)]
 
 IMAGE_MATCH_THRESHOLD = 0.95
+tessdata_config = '--tessdata-dir "C:\\Program Files (x86)\\Tesseract-OCR\\tessdata"'
 
 NOT_IN_HAND = "Not in hand"
 PREFLOP = "Preflop"
@@ -105,25 +105,25 @@ class MyGUI:
         global WINDOW_POSITION, WINDOW_SIZE
         previous_status = "init"
         previous_number_players = 0
-        table_name = tkSimpleDialog.askstring("Table name", "Please specify table name (partial)")
-        if table_name == "":
-            tkMessageBox.showinfo("ERROR", "Table name not provided!")
+        table_name = simpledialog.askstring("Table name", "Please specify table name (partial)")
+        if table_name == "" or table_name is None:
+            messagebox.showinfo("ERROR", "Table name not provided!")
         else:
             w = WindowMgr()
             w.find_window_wildcard(".*" + table_name + ".*")
             if w.gen_handle() == None:
-                tkMessageBox.showinfo("ERROR", "Table " + table_name + " not found!")
+                messagebox.showinfo("ERROR", "Table " + table_name + " not found!")
             else:
                 w.set_foreground()
                 WINDOW_POSITION = w.get_position()
                 WINDOW_SIZE = w.get_size()
-                tkMessageBox.showinfo("START", "Bot started!")
+                messagebox.showinfo("START", "Bot started!")
                 run_flag = True
 
     def stopCallback(self):
         global run_flag
         run_flag = False
-        tkMessageBox.showinfo("STOP", "Bot stopped!")
+        messagebox.showinfo("STOP", "Bot stopped!")
 
     def setTableCards(self, value):
         self.TableCards.config(text = "Table cards: " + value)
@@ -144,7 +144,7 @@ class MyGUI:
         self.PotOdds.config(text = "Pot odds: " + value)
 
     def setStatus(self, value, number):
-        self.Status.config(text = "State: " + value + "(" + str(number) + ")")
+        self.Status.config(text = "State: " + value + " (" + str(number) + ")")
 
 def distance(x, y, point):
     return math.sqrt(math.pow(point[0]-x,2)+math.pow(point[1]-y,2))
@@ -268,7 +268,7 @@ def updateGUI(master):
     dealer = closest_point(button_location[0], button_location[1], buttonPositions)
     myPosition = position (dealer, playerStatus)
     
-    potSize = pytesseract.image_to_string(Image.open("prints/pot.png"))
+    potSize = pytesseract.image_to_string(Image.open("prints/pot.png"), config=tessdata_config)
     potSize = potSize.replace("Pot: ","")
     potSize = potSize.replace(",","").strip()
     potSize = potSize.replace(" ","")
@@ -277,7 +277,7 @@ def updateGUI(master):
     else:
         GUI.setPotSize("ERROR")
 
-    callSize = pytesseract.image_to_string(Image.open("prints/action.png"))
+    callSize = pytesseract.image_to_string(Image.open("prints/action.png"), config=tessdata_config)
     if callSize.find("Call")==0:
         callSize = callSize.replace("Call","").strip()
         if callSize.isnumeric():
