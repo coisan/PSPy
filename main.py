@@ -8,6 +8,7 @@ import cv2
 from win32 import win32gui
 import math
 import re
+import random
 
 #Execution cycle time in ms
 MAINLOOP_CYCLE_TIME = 2000
@@ -48,6 +49,8 @@ FLOP = "Flop"
 TURN = "Turn"
 RIVER = "River"
 
+actions = ["fold", "call", "raise"]
+
 class WindowMgr:
     
     def __init__ (self):
@@ -82,9 +85,11 @@ class MyGUI:
         frame.pack()
         self.Status = Label(master, text="State:", font = "TkDefaultFont 10 bold")
         self.Status.pack()
-        self.CardOdds = Label(master, text="Winning odds:", font = "TkDefaultFont 10 bold")
+        self.RateOfReturn = Label(master, text="Rate of return:", font = "TkDefaultFont 10 bold")
+        self.RateOfReturn.pack()
+        self.CardOdds = Label(master, text="Winning odds:")
         self.CardOdds.pack()
-        self.PotOdds = Label(master, text="Pot odds:", font = "TkDefaultFont 10 bold")
+        self.PotOdds = Label(master, text="Pot odds:")
         self.PotOdds.pack()
         self.PotSize = Label(master, text="Pot size:")
         self.PotSize.pack()
@@ -132,16 +137,19 @@ class MyGUI:
         self.PlayerCards.config(text = "Player cards: " + value)
 
     def setCallSize(self, value):
-        self.CallSize.config(text = "Call size: " + value)
+        self.CallSize.config(text = "Call size: " + str(value))
 
     def setPotSize(self, value):
-        self.PotSize.config(text = "Pot size: " + value)
+        self.PotSize.config(text = "Pot size: " + str(value))
 
     def setCardOdds(self, value):
-        self.CardOdds.config(text = "Winning odds: " + value)
+        self.CardOdds.config(text = "Win odds: " + str(value))
 
     def setPotOdds(self, value):
-        self.PotOdds.config(text = "Pot odds: " + value)
+        self.PotOdds.config(text = "Pot odds: " + str(value))
+                             
+    def setRateOfReturn(self, value):
+        self.RateOfReturn.config(text = "Rate of return: " + str(value))
 
     def setStatus(self, value, number):
         self.Status.config(text = "State: " + value + " (" + str(number) + ")")
@@ -165,6 +173,14 @@ def position(index, active_players):
         if active_players[i] == 1:
             cnt = cnt + 1
     return cnt + 1
+
+def random_pick(action_list, probabilities):
+    x = random.uniform(0, 1)
+    cumulative_probability = 0.0
+    for item, item_probability in zip(action_list, probabilities):
+        cumulative_probability += item_probability
+        if x < cumulative_probability: break
+    return item
     
 def getScreen(master):
     global run_flag
@@ -275,29 +291,40 @@ def updateGUI(master):
     if potSize.isnumeric():
         GUI.setPotSize(potSize)
     else:
+        potSize = -1
         GUI.setPotSize("ERROR")
 
     callSize = pytesseract.image_to_string(Image.open("prints/action.png"), config=tessdata_config)
+    potOdds = 0
+    print("\n")
+    print (">" + callSize)
     if callSize.find("Call")==0:
         callSize = callSize.replace("Call","").strip()
         if callSize.isnumeric():
             GUI.setCallSize(callSize)
         else:
+            callSize = -1
             GUI.setCallSize("ERROR")
-        if callSize.isnumeric() and potSize.isnumeric():
-            GUI.setPotOdds(str(round(float(callSize)/float(potSize)*100,2))+"%")
+        if int(callSize) > 0 and int(potSize) > 0:
+            potOdds = round(float(callSize)/float(potSize)*100,2)
+            GUI.setPotOdds(str(potOdds)+"%")
         else:
+            potOdds = -1
             GUI.setPotOdds("ERROR")
     elif callSize.find("Check")==0:
-        GUI.setCallSize("0")
+        callSize = 0
+        GUI.setCallSize(callSize)
+        potOdds = 0
         GUI.setPotOdds("0%")
 
-    global previous_status, previous_number_players
+    global previous_status, previous_number_players, previous_pot_odds, previous_win_odds
     if playerCards_found[0] == "-" or playerCards_found[1] == "-":
         GUI.setStatus(NOT_IN_HAND, number_players)
         GUI.setCardOdds("")
         GUI.setPotOdds("")
+        callSize = 0
         GUI.setCallSize("")
+        GUI.setRateOfReturn("")
         status = NOT_IN_HAND
     elif tableCards_found[0] == "-" and tableCards_found[1] == "-" and tableCards_found[2] == "-" and tableCards_found[3] == "-" and tableCards_found[4] == "-":
         GUI.setStatus(PREFLOP, str(myPosition) + "/" + str(number_players))
@@ -316,24 +343,66 @@ def updateGUI(master):
     for i in range (0, number_players):
         allCards.append("?")
         allCards.append("?")
-    if (previous_status != status or previous_number_players != number_players) and status != NOT_IN_HAND:
-        GUI.setCardOdds("calculating...")
-        if status == PREFLOP:
-            win_odds = str(round(holdem_calc.calculate(None, False, PREFLOP_SIMULATIONS, None, allCards, False)[1]*100,2))+"%"
-        if status == FLOP:
-            win_odds = str(round(holdem_calc.calculate([tableCards_found[0], tableCards_found[1], tableCards_found[2]], False, FLOP_SIMULATIONS, None, allCards, False)[1]*100,2))+"%"
-        if status == TURN:
-            win_odds = str(round(holdem_calc.calculate([tableCards_found[0], tableCards_found[1], tableCards_found[2], tableCards_found[3]], False, TURN_SIMULATIONS, None, allCards, False)[1]*100,2))+"%"
-        if status == RIVER:
-            win_odds = str(round(holdem_calc.calculate([tableCards_found[0], tableCards_found[1], tableCards_found[2], tableCards_found[3], tableCards_found[4]], False, RIVER_SIMULATIONS, None, allCards, False)[1]*100,2))+"%"
-        GUI.setCardOdds(win_odds)
-        previous_status = status
-        previous_number_players = number_players
+
+    if status != NOT_IN_HAND:
+        if previous_status != status or previous_number_players != number_players or previous_pot_odds != potOdds:
+            if previous_status != status or previous_number_players != number_players:
+                GUI.setCardOdds("calculating...")
+                if status == PREFLOP:
+                    winOdds = str(round(holdem_calc.calculate(None, False, PREFLOP_SIMULATIONS, None, allCards, False)[1]*100,2))
+                if status == FLOP:
+                    winOdds = str(round(holdem_calc.calculate([tableCards_found[0], tableCards_found[1], tableCards_found[2]], False, FLOP_SIMULATIONS, None, allCards, False)[1]*100,2))
+                if status == TURN:
+                    winOdds = str(round(holdem_calc.calculate([tableCards_found[0], tableCards_found[1], tableCards_found[2], tableCards_found[3]], False, TURN_SIMULATIONS, None, allCards, False)[1]*100,2))
+                if status == RIVER:
+                    winOdds = str(round(holdem_calc.calculate([tableCards_found[0], tableCards_found[1], tableCards_found[2], tableCards_found[3], tableCards_found[4]], False, RIVER_SIMULATIONS, None, allCards, False)[1]*100,2))
+                GUI.setCardOdds(winOdds + "%")
+                previous_status = status
+                previous_number_players = number_players
+                previous_win_odds = winOdds
+
+            previous_pot_odds = potOdds
+
+            if potOdds < 0:
+                rateOfReturn = -1
+                GUI.setRateOfReturn("ERROR")
+            elif potOdds == 0:
+                rateOfReturn = 1
+                GUI.setRateOfReturn(rateOfReturn)
+            elif potOdds > 0:
+                rateOfReturn = round(float(previous_win_odds)/float(potOdds),2)
+                GUI.setRateOfReturn(rateOfReturn)
+
+            if rateOfReturn > 0:
+                if rateOfReturn < 0.8:
+                    actionToDo = random_pick(actions, [0.95, 0, 0.05])
+                elif rateOfReturn < 1:
+                    actionToDo = random_pick(actions, [0.80, 0.05, 0.15])
+                elif rateOfReturn < 1.3:
+                    actionToDo = random_pick(actions, [0, 0.60, 0.40])
+                elif rateOfReturn >= 1.3:
+                    actionToDo = random_pick(actions, [0, 0.30, 0.70])
+
+                if actionToDo == "fold":
+                    if callSize == 0:
+                        print ("check")
+                    else:
+                        print (actionToDo)
+                elif actionToDo == "call":
+                    if callSize == 0:
+                        print ("check")
+                    else:
+                        print (actionToDo + " " + callSize)
+                elif actionToDo == "raise":
+                    print (actionToDo + " " + str(round(float(previous_win_odds) * int(potSize) / 100)))
 
 if __name__ == "__main__":
     run_flag = False
     previous_status = "init"
     previous_number_players = 0
+    previous_pot_odds = 0
+    previous_win_odds = 0
+    
     root = Tk()
     root.title("PSPy")
     GUI = MyGUI(root)
